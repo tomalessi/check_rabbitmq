@@ -1,0 +1,263 @@
+#!/usr/bin/python
+
+#
+# Copyright 2015, Tom Alessi, tom.alessi@gmail.com
+#
+# Licensed under the Apache License, Version 2.0 (the "License");
+# you may not use this file except in compliance with the License.
+# You may obtain a copy of the License at
+#
+#     http://www.apache.org/licenses/LICENSE-2.0
+#
+# Unless required by applicable law or agreed to in writing, software
+# distributed under the License is distributed on an "AS IS" BASIS,
+# WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+# See the License for the specific language governing permissions and
+# limitations under the License.
+#
+
+"""Rabbitmq Nagios Plugin
+
+
+"""
+
+
+import json
+import urllib2
+from optparse import OptionParser
+
+
+def initialize_opener():
+    """Initialize the urllib opener w/ the supplied credentials"""
+
+    # Create a password manager with our passwords
+    passman = urllib2.HTTPPasswordMgrWithDefaultRealm()
+    passman.add_password(None, url, options.username, options.password)
+
+    # Create the AuthHandler
+    authhandler = urllib2.HTTPBasicAuthHandler(passman)
+
+    # Create the opener
+    opener = urllib2.build_opener(authhandler)
+    urllib2.install_opener(opener)
+
+    # All calls to urllib2.urlopen will now use our handler and authentication will be handled automatically
+
+
+def queue_consumers():
+    """Query Rabbitmq for the number of consumers attached to each queue that we care about
+
+    """
+
+    # Convert the inputed list to a dictionary
+    queue_list = dict(item.split(":") for item in options.queue_list.split(","))
+
+    url = 'http://%s:15672/api/queues/%s' % (options.host,options.vhost)
+
+    # Initialize the urllib opener w/ the supplied credentials
+    initialize_opener(url)
+
+    if options.debug:
+        print 'Executing queues_count for %s and looking for a count of queues that is at least %s' % (options.vhost, options.expected_count)
+        print 'URL: %s' % url
+
+    try:
+        request = urllib2.urlopen(url)
+    except Exception, e:
+        print 'CRITICAL : RabbitMQ API Error\nError occurred querying RabbitMQ API (%s):%s' % (url,e)
+        exit(2)
+
+    response = request.read()
+
+    # Start with a good status
+    output = ''
+    exit_code = 0
+
+    raw_json = json.loads(response)
+
+    for row in raw_json:
+
+        # Is this one of ours?
+        if row['name'] in queue_list:
+            output += '\n%s : consumers => %s' % (row['name'],row['consumers'])
+
+            # If there is not x consumers, we have a problem
+            if int(row['consumers']) != int(queue_list[row['name']]):
+                if options.debug:
+                    print '%s has %s consumers and requires %s' % (row['name'], row['consumers'], queue_list[row['name']])
+                exit_code = 2
+
+    if exit_code == 2:
+        print 'CRITICAL : wrong number of consumers detected\n%s' % output
+        exit(2)
+    else:
+        print 'OK : All queues have the proper number of consumers\n%s'  % output
+        exit(0)
+
+
+def queue_count():
+    """Query Rabbitmq for and determine how many queues are present
+
+    """
+
+    url = 'http://%s:15672/api/queues/%s' % (options.host,options.vhost)
+
+    # Initialize the urllib opener w/ the supplied credentials
+    initialize_opener(url)
+
+    if options.debug:
+        print 'Executing queues_count for %s and looking for a count of queues that is at least %s' % (options.vhost, options.expected_count)
+        print 'URL: %s' % url
+
+    try:
+        request = urllib2.urlopen(url)
+    except Exception, e:
+        print 'CRITICAL : RabbitMQ API Error\nError occurred querying RabbitMQ API (%s):%s' % (url,e)
+        exit(2)
+
+    response = request.read()
+    raw_json = json.loads(response)
+
+    if len(raw_json) != int(options.expected_count):
+        print 'CRITICAL : Expected %s queues and found %s' % (options.expected_count, len(raw_json))
+        exit(2)
+    else:
+        print 'OK : %s queues found' % len(raw_json)
+        exit(0)
+
+
+def queue_synchronisation():
+    """Query Rabbitmq for proper queue synchronisation
+
+    - This function will check that all queues within the
+          provided vhost are mirrored (synchronised)
+
+    """
+
+    url = 'http://%s:15672/api/queues/%s' % (options.host,options.vhost)
+
+    # Initialize the urllib opener w/ the supplied credentials
+    initialize_opener(url)
+
+    if options.debug:
+        print 'Executing queue_synchronisation for %s and looking for synchronised queues that have at least %s slave(s)' % (options.vhost, options.expected_count)
+        print 'URL: %s' % url
+
+    try:
+        request = urllib2.urlopen(url)
+    except Exception, e:
+        print 'CRITICAL : RabbitMQ API Error\nError occurred querying RabbitMQ API (%s):%s' % (url,e)
+        exit(2)
+
+    response = request.read()
+
+    # Start with a good status
+    output = ''
+    exit_code = 0
+
+    raw_json = json.loads(response)
+    for row in raw_json:
+        output += '\n%s : synchronised_slaves => %s' % (row['name'],len(row['synchronised_slave_nodes']))
+
+        # If there is not at least x synchronised slaves, we have a problem
+        if len(row['synchronised_slave_nodes']) < int(options.expected_count):
+            if options.debug:
+                print '%s has %s synchronised slaves and requires %s' % (row['name'], len(row['synchronised_slave_nodes']), options.expected_count)
+            exit_code = 2
+
+    if exit_code == 2:
+        print 'CRITICAL : un-synchronised queue detected\n%s' % output
+        exit(2)
+    else:
+        print 'OK : All queues synchronised\n%s'  % output
+        exit(0)
+
+
+def queue_messages():
+    """Query Rabbitmq for messages in the queue
+        - Nagios will check this every 5 minutes so we will expect
+          that all queues will be empty unless very busy
+
+        - This may require some tuning but we want to make sure messages
+          are being processed
+
+    """
+
+    url = 'http://%s:15672/api/queues/%s' % (options.host,options.vhost)
+
+    # Initialize the urllib opener w/ the supplied credentials
+    initialize_opener(url)
+
+    if options.debug:
+        print 'Executing queue_messages for %s and looking for queues that have more than %s messages' % (options.vhost, options.expected_count)
+        print 'URL: %s' % url
+
+    try:
+        request = urllib2.urlopen(url)
+    except Exception, e:
+        print 'CRITICAL : RabbitMQ API Error\nError occurred querying RabbitMQ API (%s):%s' % (url,e)
+        exit(2)
+
+    response = request.read()
+
+    # Start with a good status
+    output = ''
+    exit_code = 0
+
+    raw_json = json.loads(response)
+    for row in raw_json:
+        # Sometimes there are '?' instead of messages in the admin and the messages node is not in the api response
+        # which might indicate no activity for quite some time.  If 'messages' is not in the response, ignore
+        if 'messages' in row:
+            output += '\n%s : messages => %s' % (row['name'],row['messages'])
+
+            # If there is more than x messages, we have a problem
+            if row['messages'] > int(options.expected_count):
+                if options.debug:
+                    print '%s has %s messages and requires %s' % (row['name'], row['messages'], options.expected_count)
+                exit_code = 2
+
+    if exit_code == 2:
+        print 'CRITICAL : Too many messages in queue\n%s' % output
+        exit(2)
+    else:
+        print 'OK : All queues have an acceptable message count\n%s'  % output
+        exit(0)
+
+
+#
+# BEGIN MAIN PROGRAM EXECUTION
+#
+
+
+parser = OptionParser(description='Rabbitmq Nagios Plugin', version='%prog 1.0')
+parser.add_option("-c", "--command", dest="command",
+                  help="Command to run. [queue_synchronisation|queue_count|queue_consumers|queue_messages]"
+                 )
+parser.add_option("-e", "--expected", dest="expected_count", help="The expected count of items (for example, queues, or synchronised slaves or messages")
+parser.add_option("-q", "--queue_list", dest="queue_list", help="List of queues to check and the number of consumers each should have, in the following format: queue1:2,queue2:2")
+parser.add_option("-v", "--vhost", dest="vhost", help="Vhost to check queues on (must be properly encoded).  Example: %2fvhost1")
+parser.add_option("-u", "--username", dest="username", help="RabbitMQ API Username")
+parser.add_option("-p", "--password", dest="password", help="RabbitMQ API Password")
+parser.add_option("-H", "--host", dest="host", help="Rabbitmq host to query.")
+parser.add_option('--debug',
+                  action='store_true',
+                  dest='debug',
+                  default=False,
+                  help='Print debug messages to standard out')
+(options, args) = parser.parse_args()
+
+# Run the requested command
+if options.command == 'queue_synchronisation':
+    queue_synchronisation()
+elif options.command == 'queue_count':
+    queue_count()
+elif options.command == 'queue_consumers':
+    queue_consumers()
+elif options.command == 'queue_messages':
+    queue_messages()
+
+
+# If we got this far, there was an error
+print 'CRITICAL : unknown plugin error'
+exit(2)
