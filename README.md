@@ -11,6 +11,7 @@ The check_rabbitmq plugin has the following functionality (these all relate to a
 - Check the number of consumers attached to each queue on a RabbitMQ server
 - Check the number of messages in all queues on a RabbitMQ server
 
+All monitors include additional information on the particular check in the "Status Information" field in Nagios when you drill down on the monitor.
 
 ## Examples
 The examples below have the following assumptions:
