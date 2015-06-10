@@ -1,4 +1,4 @@
-# RabbitMQ Nagios Plugin (check_rabbitmq)
+# RabbitMQ Nagios Plugin
 
 The purpose of this Nagios plugin is to check the health status of one or more (single or clustered/mirrored) Rabbitmq servers.
 

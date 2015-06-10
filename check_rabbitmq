@@ -27,7 +27,7 @@ import urllib2
 from optparse import OptionParser
 
 
-def initialize_opener():
+def initialize_opener(url):
     """Initialize the urllib opener w/ the supplied credentials"""
 
     # Create a password manager with our passwords
