@@ -67,7 +67,7 @@ define service{
         use                             generic-service
         name                            rabbitmq_queue_count
         service_description             RabbitMQ Queue Number [/vhost1]
-        check_command                   check_rabbitmq_queue_count!%2fvhost1!19
+        check_command                   check_rabbitmq_queue_count!%2fvhost1!3
         host_name                       queue1, queue2
         }
 
